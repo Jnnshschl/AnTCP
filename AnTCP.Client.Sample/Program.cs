@@ -1,5 +1,6 @@
 ﻿using AnTCP.Client.Objects;
 using System;
+using System.Text.Json;
 
 namespace AnTCP.Client.Sample
 {
@@ -7,7 +8,8 @@ namespace AnTCP.Client.Sample
     {
         Add,
         Subtract,
-        Multiply
+        Multiply,
+        MinAvgMax,
     }
 
     internal unsafe class Program
@@ -40,10 +42,28 @@ namespace AnTCP.Client.Sample
                     (int, int) data = (new Random().Next(1, 11), new Random().Next(1, 11));
 
                     Console.WriteLine($"\n>> Sending: {data.Item1}, {data.Item2}");
-                    AnTcpResponse response = client.Send((byte)new Random().Next(0, 3), data);
+                    AnTcpResponse response = client.Send((byte)new Random().Next(0, 4), data);
 
                     Console.WriteLine($">> Response: {response.Length} bytes | Type: {(MessageType)response.Type}");
-                    Console.WriteLine($">> Data: {response.As<int>()}");
+
+                    switch ((MessageType)response.Type)
+                    {
+                        case MessageType.Add:
+                        case MessageType.Subtract:
+                        case MessageType.Multiply:
+                            Console.WriteLine($">> Data: {response.As<int>()}");
+                            break;
+
+
+                        case MessageType.MinAvgMax:
+                            int[] array = response.AsArray<int>();
+                            Console.WriteLine($">> Data Array[{array.Length}]: {JsonSerializer.Serialize(array)}");
+                            break;
+
+                        default:
+                            break;
+                }
+
                 }
                 catch
                 {

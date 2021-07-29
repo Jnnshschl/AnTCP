@@ -1,6 +1,6 @@
 #include "AnTcpServer.hpp"
 
-int AnTcpServer::Run()
+int AnTcpServer::Run() noexcept
 {
     WSADATA wsaData{};
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -44,6 +44,7 @@ int AnTcpServer::Run()
     {
         std::cout << ">> bind() failed: " << WSAGetLastError() << std::endl;
         closesocket(ListenSocket);
+        ListenSocket = INVALID_SOCKET;
         WSACleanup();
         return 1;
     }
@@ -52,13 +53,12 @@ int AnTcpServer::Run()
     {
         std::cout << ">> listen() failed: " << WSAGetLastError() << std::endl;
         closesocket(ListenSocket);
+        ListenSocket = INVALID_SOCKET;
         WSACleanup();
         return 1;
     }
 
-    std::cout << ">> AnTCP.Server listening on: " << Ip << ":" << Port << std::endl;
-
-    while (true)
+    while (!ShouldExit)
     {
         // accept client and get socket info from it, the socket info contains the ip address
         // and port used to connect o the server
@@ -68,177 +68,142 @@ int AnTcpServer::Run()
 
         if (clientSocket == INVALID_SOCKET)
         {
-            std::cout << ">> accept() failed: " << WSAGetLastError() << std::endl;
+            DEBUG_ONLY(std::cout << ">> accept() failed: " << WSAGetLastError() << std::endl);
             continue;
         }
 
         // cleanup old disconnected clients
         ClientCleanup();
 
-        Clients.push_back(new ClientHandler(Clients.size(), clientSocket, clientInfo, &Callbacks));
+        Clients.push_back(new ClientHandler(Clients.size(), clientSocket, clientInfo, ShouldExit, &Callbacks));
     }
 
-    for (ClientHandler* handler : Clients)
+    for (ClientHandler* clientHandler : Clients)
     {
-        if (handler)
+        if (clientHandler)
         {
-            delete handler;
+            delete clientHandler;
         }
     }
+
+    Clients.clear();
 
     WSACleanup();
     return 0;
 }
 
-bool AnTcpServer::AddCallback(char type, std::function<void(ClientHandler*, const void*, int)> callback)
-{
-    if (!Callbacks.contains(type))
-    {
-        Callbacks[type] = callback;
-        return true;
-    }
-
-    return false;
-}
-
-bool AnTcpServer::RemoveCallback(char type)
-{
-    if (Callbacks.contains(type))
-    {
-        Callbacks.erase(type);
-        return true;
-    }
-
-    return false;
-}
-
-void AnTcpServer::ClientCleanup()
-{
-    for (size_t i = 0; i < Clients.size(); ++i)
-    {
-        if (Clients[i] && !Clients[i]->IsRunning())
-        {
-            delete Clients[i];
-            Clients.erase(Clients.begin() + i);
-        }
-    }
-}
-
-bool ClientHandler::ProcessPacket(const char* data, int size)
-{
-    if ((*Callbacks).contains(data[0]))
-    {
-        (*Callbacks)[data[0]](this, data + 1, size - 1);
-        return true;
-    }
-
-    return false;
-}
-
-bool ClientHandler::SendData(char type, const void* data, int size)
-{
-    const int headerSize = 5;
-
-    char* packet = new char[headerSize + size]{ 0 };
-    *(int*)packet = size + 1;
-    packet[4] = type;
-
-    if (size > 0)
-    {
-        __movsb((unsigned char*)(packet + headerSize), (unsigned char*)data, size);
-    }
-
-    int result = send(Socket, packet, headerSize + size, 0);
-
-    delete[] packet;
-    return result != SOCKET_ERROR;
-}
-
-void ClientHandler::HandleClient(int id, SOCKET socket, const SOCKADDR_IN& socketInfo)
+void ClientHandler::Listen() noexcept
 {
     // convert the ip to a human readable format
-    char ipBuff[16]{ 0 };
-    inet_ntop(AF_INET, &socketInfo.sin_addr, ipBuff, 16);
+    char ipAddressBuffer[16]{ 0 };
+    inet_ntop(AF_INET, &SocketInfo.sin_addr, ipAddressBuffer, 16);
 
     // this string will be used in logging to identify clients
-    std::string threadTag("[" + std::to_string(id) + "|" + ipBuff + ":" + std::to_string(socketInfo.sin_port) + "] >> ");
-    std::cout << threadTag << "Connected" << std::endl;
+    std::string logTag("[" + std::to_string(Id) + "|" + ipAddressBuffer + ":" + std::to_string(SocketInfo.sin_port) + "] >> ");
+    std::cout << logTag << "Connected" << std::endl;
 
+    // the amount of bytes received from the recv function
     int incomingBytes = 0;
+    // the amount of bytes that we processed
     int bytesProcessed = 0;
+    // buffer for the incoming bytes
     char recvbuf[ANTCP_BUFFER_LENGTH];
 
+    // the index of our current header
     int headerPosition = 0;
-    char header[4]{ 0 };
+    // buffer for the header
+    char header[sizeof(AnTcpSizeType)]{ 0 };
 
-    int packetSize = 0;
+    // the total packet size
+    AnTcpSizeType packetSize = 0;
+    // the amount of bytes we are missing to complete the packet
     int packetBytesMissing = 0;
+    // buffer for the packet
     char packet[ANTCP_MAX_PACKET_SIZE]{ 0 };
 
-    while (true)
+    while (!ShouldExit)
     {
-        incomingBytes = recv(socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
+        incomingBytes = recv(Socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
 
-        if (incomingBytes <= 0) { break; }
+        // if we received 0 or -1 bytes, we're going to disconnect the client
+        if (incomingBytes <= 0)
+        {
+            break;
+        }
 
-#ifdef _DEBUG
-        std::cout << threadTag << "Received " << std::to_string(incomingBytes) + " bytes" << std::endl;
-#endif
+        DEBUG_ONLY(std::cout << logTag << "Received " << std::to_string(incomingBytes) + " bytes" << std::endl);
+
         do
         {
             if (packetBytesMissing > 0)
             {
-                int bytesLeft = incomingBytes - bytesProcessed;
-                int bytesToCopy = std::min(bytesLeft, packetBytesMissing);
-#ifdef _DEBUG
-                std::cout << threadTag
+                const int bytesToCopy = std::min(incomingBytes - bytesProcessed, packetBytesMissing);
+
+                DEBUG_ONLY(std::cout << logTag
                     << "Packet Chunk: " << std::to_string(bytesToCopy) << " bytes ("
-                    << std::to_string(packetSize - (packetBytesMissing - bytesToCopy)) << "/" << std::to_string(packetSize) << ")" << std::endl;
-#endif
-                __movsb((unsigned char*)&packet[packetSize - packetBytesMissing], (unsigned char*)(recvbuf + bytesProcessed), bytesToCopy);
-                incomingBytes -= bytesToCopy;
+                    << std::to_string(packetSize - (packetBytesMissing - bytesToCopy))
+                    << "/" << std::to_string(packetSize) << ")" << std::endl);
+
+                // copy data from incoming buffer to packet buffer
+                const unsigned char* bufferData = reinterpret_cast<const unsigned char*>(recvbuf + bytesProcessed);
+                unsigned char* packetData = reinterpret_cast<unsigned char*>(packet + (packetSize - packetBytesMissing));
+
+                __movsb(packetData, bufferData, bytesToCopy);
+                bytesProcessed += bytesToCopy;
+
+                // check whether we still miss some bytes
                 packetBytesMissing -= bytesToCopy;
 
                 if (packetBytesMissing == 0)
                 {
+                    // measure packet processing time in debug mode
+                    BENCHMARK(const auto packetStart = std::chrono::high_resolution_clock::now());
+
                     if (!ProcessPacket(packet, packetSize))
                     {
-                        std::cout << threadTag << "\"" << (int)packet[0] << "\" is an unknown message type, disconnecting client..." << std::endl;
+                        std::cout << logTag << "\"" << static_cast<int>(*reinterpret_cast<AnTcpMessageType*>(packet)) << "\" is an unknown message type, disconnecting client..." << std::endl;
                         closesocket(Socket);
-                        IsActive = false;
+                        Socket = INVALID_SOCKET;
+                        IsConnected = false;
                         return;
                     }
 
-                    packetSize = 0;
+                    BENCHMARK(std::cout << logTag << "Processing packet of type \"" << static_cast<int>(*reinterpret_cast<AnTcpMessageType*>(packet)) << "\" took: "
+                        << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - packetStart) << std::endl);
                 }
             }
             else
             {
-                if (headerPosition < 4)
+                if (headerPosition < static_cast<int>(sizeof(AnTcpSizeType)))
                 {
-                    int bytesToCopy = std::min(incomingBytes - bytesProcessed, 4 - headerPosition);
-                    __movsb((unsigned char*)&header[headerPosition], (unsigned char*)(recvbuf + bytesProcessed), bytesToCopy);
+                    const int bytesToCopy = std::min(incomingBytes - bytesProcessed, static_cast<int>(sizeof(AnTcpSizeType)) - headerPosition);
+
+                    // copy data from buffer to header buffer
+                    const unsigned char* bufferData = reinterpret_cast<const unsigned char*>(recvbuf + bytesProcessed);
+                    unsigned char* headerData = reinterpret_cast<unsigned char*>(header + headerPosition);
+
+                    __movsb(headerData, bufferData, bytesToCopy);
                     bytesProcessed += bytesToCopy;
+
                     headerPosition += bytesToCopy;
                 }
                 else
                 {
-                    packetSize = *(int*)header;
+                    headerPosition = 0;
+                    packetSize = *reinterpret_cast<AnTcpSizeType*>(header);
 
                     if (packetSize > ANTCP_MAX_PACKET_SIZE)
                     {
                         // packet is too big, this may be a wrong/malicious payload
-                        std::cout << threadTag << "Packet too big, disconnecting client..." << std::endl;
+                        std::cout << logTag << "Packet too big (" << packetSize << "/" << ANTCP_MAX_PACKET_SIZE << "), disconnecting client..." << std::endl;
                         closesocket(Socket);
-                        IsActive = false;
+                        Socket = INVALID_SOCKET;
+                        IsConnected = false;
                         return;
                     }
 
                     packetBytesMissing = packetSize;
-                    headerPosition = 0;
-#ifdef _DEBUG
-                    std::cout << threadTag << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl;
-#endif
+                    DEBUG_ONLY(std::cout << logTag << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl);
                 }
             }
         } while (bytesProcessed < incomingBytes);
@@ -247,6 +212,7 @@ void ClientHandler::HandleClient(int id, SOCKET socket, const SOCKADDR_IN& socke
     }
 
     closesocket(Socket);
-    std::cout << threadTag << "Disconnected" << std::endl;
-    IsActive = false;
+    Socket = INVALID_SOCKET;
+    std::cout << logTag << "Disconnected" << std::endl;
+    IsConnected = false;
 }

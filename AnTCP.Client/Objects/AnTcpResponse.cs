@@ -34,6 +34,19 @@ namespace AnTCP.Client.Objects
         public T As<T>() where T : unmanaged => *Pointer<T>();
 
         /// <summary>
+        /// Retrieve the data as any unmanaged type array.
+        /// </summary>
+        /// <typeparam name="T">Unmanaged type</typeparam>
+        /// <returns>Data array</returns>
+        public T[] AsArray<T>() where T : unmanaged
+        {
+            T[] array = new T[Length / sizeof(T)];
+            using MemoryHandle h = array.AsMemory().Pin();
+            Buffer.MemoryCopy(Pointer<T>(), h.Pointer, Length, Length);
+            return array;
+        }
+
+        /// <summary>
         /// Retrieve the data as any unamanaged pointer.
         /// </summary>
         /// <typeparam name="T">Unmanaged type</typeparam>
