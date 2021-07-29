@@ -40,19 +40,19 @@ int __stdcall SigIntHandler(unsigned long signal)
 void AddCallback(ClientHandler* handler, char type, const void* data, int size)
 {
     int c = ((int*)data)[0] + ((int*)data)[1];
-    handler->SendData(type, c);
+    handler->SendDataVar(type, c);
 }
 
 void SubtractCallback(ClientHandler* handler, char type, const void* data, int size)
 {
     int c = ((int*)data)[0] - ((int*)data)[1];
-    handler->SendData(type, c);
+    handler->SendDataVar(type, c);
 }
 
 void MultiplyCallback(ClientHandler* handler, char type, const void* data, int size)
 {
     int c = ((int*)data)[0] * ((int*)data)[1];
-    handler->SendData(type, c);
+    handler->SendDataVar(type, c);
 }
 
 void MinAvgMaxCallback(ClientHandler* handler, char type, const void* data, int size)

@@ -106,7 +106,7 @@ public:
     /// <param name="data">Data to send.</param>
     /// <returns>True if data was sent, false if not.</returns>
     template<typename T>
-    constexpr bool SendData(AnTcpMessageType type, const T data) const noexcept
+    constexpr bool SendDataVar(AnTcpMessageType type, const T data) const noexcept
     {
         return SendData(type, &data, sizeof(T));
     }
@@ -122,7 +122,7 @@ public:
     /// <param name="data">Data to send.</param>
     /// <returns>True if data was sent, false if not.</returns>
     template<typename T>
-    constexpr bool SendData(AnTcpMessageType type, const T* data) const noexcept
+    constexpr bool SendDataPtr(AnTcpMessageType type, const T* data) const noexcept
     {
         return SendData(type, data, sizeof(T));
     }
