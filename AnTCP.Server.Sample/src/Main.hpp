@@ -15,6 +15,9 @@ inline AnTcpServer* Server = nullptr;
 
 int __stdcall SigIntHandler(unsigned long signal);
 
+void ConnectedCallback(ClientHandler* handler);
+void DisconnectedCallback(ClientHandler* handler);
+
 void AddCallback(ClientHandler* handler, char type, const void* data, int size);
 void SubtractCallback(ClientHandler* handler, char type, const void* data, int size);
 void MultiplyCallback(ClientHandler* handler, char type, const void* data, int size);

@@ -54,7 +54,6 @@ namespace AnTCP.Client.Sample
                             Console.WriteLine($">> Data: {response.As<int>()}");
                             break;
 
-
                         case MessageType.MinAvgMax:
                             int[] array = response.AsArray<int>();
                             Console.WriteLine($">> Data Array[{array.Length}]: {JsonSerializer.Serialize(array)}");
@@ -62,16 +61,15 @@ namespace AnTCP.Client.Sample
 
                         default:
                             break;
-                }
-
+                    }
                 }
                 catch
                 {
+                    client.Disconnect();
                     Console.WriteLine(">> Failed to send data...");
                 }
             }
 
-            client.Disconnect();
         }
     }
 }

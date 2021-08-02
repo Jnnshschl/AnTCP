@@ -15,6 +15,9 @@ int main()
 
     Server = new AnTcpServer(ip, port);
 
+    Server->SetOnClientConnected(ConnectedCallback);
+    Server->SetOnClientDisconnected(DisconnectedCallback);
+
     Server->AddCallback((char)MessageType::ADD, AddCallback);
     Server->AddCallback((char)MessageType::SUBTRACT, SubtractCallback);
     Server->AddCallback((char)MessageType::MULTIPLY, MultiplyCallback);
@@ -35,6 +38,16 @@ int __stdcall SigIntHandler(unsigned long signal)
     }
 
     return 1;
+}
+
+void ConnectedCallback(ClientHandler* handler)
+{
+    std::cout << ">> -> Client Connected: " << handler->GetIpAddress() << ":" << handler->GetPort() << std::endl;
+}
+
+void DisconnectedCallback(ClientHandler* handler)
+{
+    std::cout << ">> <- Client Disconnected: " << handler->GetIpAddress() << ":" << handler->GetPort() << std::endl;
 }
 
 void AddCallback(ClientHandler* handler, char type, const void* data, int size)

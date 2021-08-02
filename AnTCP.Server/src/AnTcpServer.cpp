@@ -1,14 +1,14 @@
 #include "AnTcpServer.hpp"
 
-int AnTcpServer::Run() noexcept
+AnTcpError AnTcpServer::Run() noexcept
 {
     WSADATA wsaData{};
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
 
     if (result != 0)
     {
-        std::cout << ">> WSAStartup() failed: " << result << std::endl;
-        return 1;
+        DEBUG_ONLY(std::cout << ">> WSAStartup() failed: " << result << std::endl);
+        return AnTcpError::Win32WsaStartupFailed;
     }
 
     addrinfo hints{ 0 };
@@ -22,19 +22,19 @@ int AnTcpServer::Run() noexcept
 
     if (result != 0)
     {
-        std::cout << ">> getaddrinfo() failed: " << result << std::endl;
+        DEBUG_ONLY(std::cout << ">> getaddrinfo() failed: " << result << std::endl);
         WSACleanup();
-        return 1;
+        return AnTcpError::GetAddrInfoFailed;
     }
 
     ListenSocket = socket(addrResult->ai_family, addrResult->ai_socktype, addrResult->ai_protocol);
 
     if (ListenSocket == INVALID_SOCKET)
     {
-        std::cout << ">> socket() failed: " << WSAGetLastError() << std::endl;
+        DEBUG_ONLY(std::cout << ">> socket() failed: " << WSAGetLastError() << std::endl);
         freeaddrinfo(addrResult);
         WSACleanup();
-        return 1;
+        return AnTcpError::SocketCreationFailed;
     }
 
     result = bind(ListenSocket, addrResult->ai_addr, static_cast<int>(addrResult->ai_addrlen));
@@ -42,20 +42,20 @@ int AnTcpServer::Run() noexcept
 
     if (result == SOCKET_ERROR)
     {
-        std::cout << ">> bind() failed: " << WSAGetLastError() << std::endl;
+        DEBUG_ONLY(std::cout << ">> bind() failed: " << WSAGetLastError() << std::endl);
         closesocket(ListenSocket);
         ListenSocket = INVALID_SOCKET;
         WSACleanup();
-        return 1;
+        return AnTcpError::SocketBindingFailed;
     }
 
     if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR)
     {
-        std::cout << ">> listen() failed: " << WSAGetLastError() << std::endl;
+        DEBUG_ONLY(std::cout << ">> listen() failed: " << WSAGetLastError() << std::endl);
         closesocket(ListenSocket);
         ListenSocket = INVALID_SOCKET;
         WSACleanup();
-        return 1;
+        return AnTcpError::SocketListeningFailed;
     }
 
     while (!ShouldExit)
@@ -75,7 +75,7 @@ int AnTcpServer::Run() noexcept
         // cleanup old disconnected clients
         ClientCleanup();
 
-        Clients.push_back(new ClientHandler(Clients.size(), clientSocket, clientInfo, ShouldExit, &Callbacks));
+        Clients.push_back(new ClientHandler(Clients.size(), clientSocket, clientInfo, ShouldExit, &Callbacks, &OnClientConnected, &OnClientDisconnected));
     }
 
     for (ClientHandler* clientHandler : Clients)
@@ -89,19 +89,11 @@ int AnTcpServer::Run() noexcept
     Clients.clear();
 
     WSACleanup();
-    return 0;
+    return AnTcpError::Success;
 }
 
 void ClientHandler::Listen() noexcept
 {
-    // convert the ip to a human readable format
-    char ipAddressBuffer[16]{ 0 };
-    inet_ntop(AF_INET, &SocketInfo.sin_addr, ipAddressBuffer, 16);
-
-    // this string will be used in logging to identify clients
-    std::string logTag("[" + std::to_string(Id) + "|" + ipAddressBuffer + ":" + std::to_string(SocketInfo.sin_port) + "] >> ");
-    std::cout << logTag << "Connected" << std::endl;
-
     // the amount of bytes received from the recv function
     int incomingBytes = 0;
     // the amount of bytes that we processed
@@ -121,9 +113,15 @@ void ClientHandler::Listen() noexcept
     // buffer for the packet
     char packet[ANTCP_MAX_PACKET_SIZE]{ 0 };
 
+    if (OnClientConnected)
+    {
+        (*OnClientConnected)(this);
+    }
+
     while (!ShouldExit)
     {
         incomingBytes = recv(Socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
+        bytesProcessed = 0;
 
         // if we received 0 or -1 bytes, we're going to disconnect the client
         if (incomingBytes <= 0)
@@ -131,88 +129,84 @@ void ClientHandler::Listen() noexcept
             break;
         }
 
-        DEBUG_ONLY(std::cout << logTag << "Received " << std::to_string(incomingBytes) + " bytes" << std::endl);
+        DEBUG_ONLY(std::cout << "[" << Id << "] " << "Received " << std::to_string(incomingBytes) + " bytes" << std::endl);
 
         do
         {
             if (packetBytesMissing > 0)
             {
+                // gather bytes complete the packet
                 const int bytesToCopy = std::min(incomingBytes - bytesProcessed, packetBytesMissing);
 
-                DEBUG_ONLY(std::cout << logTag
-                    << "Packet Chunk: " << std::to_string(bytesToCopy) << " bytes ("
+                DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet Chunk: " << std::to_string(bytesToCopy) << " bytes ("
                     << std::to_string(packetSize - (packetBytesMissing - bytesToCopy))
                     << "/" << std::to_string(packetSize) << ")" << std::endl);
 
                 // copy data from incoming buffer to packet buffer
-                const unsigned char* bufferData = reinterpret_cast<const unsigned char*>(recvbuf + bytesProcessed);
-                unsigned char* packetData = reinterpret_cast<unsigned char*>(packet + (packetSize - packetBytesMissing));
-
-                __movsb(packetData, bufferData, bytesToCopy);
+                memcpy(packet + (packetSize - packetBytesMissing), recvbuf + bytesProcessed, bytesToCopy);
                 bytesProcessed += bytesToCopy;
 
                 // check whether we still miss some bytes
                 packetBytesMissing -= bytesToCopy;
 
-                if (packetBytesMissing == 0)
+                if (packetBytesMissing == 0 && !ProcessPacket(packet, packetSize))
                 {
-                    // measure packet processing time in debug mode
-                    BENCHMARK(const auto packetStart = std::chrono::high_resolution_clock::now());
-
-                    if (!ProcessPacket(packet, packetSize))
-                    {
-                        std::cout << logTag << "\"" << static_cast<int>(*reinterpret_cast<AnTcpMessageType*>(packet)) << "\" is an unknown message type, disconnecting client..." << std::endl;
-                        closesocket(Socket);
-                        Socket = INVALID_SOCKET;
-                        IsConnected = false;
-                        return;
-                    }
-
-                    BENCHMARK(std::cout << logTag << "Processing packet of type \"" << static_cast<int>(*reinterpret_cast<AnTcpMessageType*>(packet)) << "\" took: "
-                        << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - packetStart) << std::endl);
+                    Disconnect();
+                    return;
                 }
             }
             else
             {
                 if (headerPosition < static_cast<int>(sizeof(AnTcpSizeType)))
                 {
+                    // we still need to finish building the header
                     const int bytesToCopy = std::min(incomingBytes - bytesProcessed, static_cast<int>(sizeof(AnTcpSizeType)) - headerPosition);
 
                     // copy data from buffer to header buffer
-                    const unsigned char* bufferData = reinterpret_cast<const unsigned char*>(recvbuf + bytesProcessed);
-                    unsigned char* headerData = reinterpret_cast<unsigned char*>(header + headerPosition);
-
-                    __movsb(headerData, bufferData, bytesToCopy);
+                    memcpy(header + headerPosition, recvbuf + bytesProcessed, bytesToCopy);
                     bytesProcessed += bytesToCopy;
-
                     headerPosition += bytesToCopy;
                 }
                 else
                 {
+                    // header is completed, begin to build packet
                     headerPosition = 0;
                     packetSize = *reinterpret_cast<AnTcpSizeType*>(header);
 
                     if (packetSize > ANTCP_MAX_PACKET_SIZE)
                     {
                         // packet is too big, this may be a wrong/malicious payload
-                        std::cout << logTag << "Packet too big (" << packetSize << "/" << ANTCP_MAX_PACKET_SIZE << "), disconnecting client..." << std::endl;
-                        closesocket(Socket);
-                        Socket = INVALID_SOCKET;
-                        IsConnected = false;
+                        DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet too big (" << std::to_string(packetSize)
+                            << "/" << ANTCP_MAX_PACKET_SIZE << "), disconnecting client..." << std::endl);
+
+                        Disconnect();
                         return;
                     }
+                    else
+                    {
+                        DEBUG_ONLY(std::cout << "[" << Id << "] " << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl);
 
-                    packetBytesMissing = packetSize;
-                    DEBUG_ONLY(std::cout << logTag << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl);
+                        if (incomingBytes >= packetSize)
+                        {
+                            // we already received the full packet, so process it directly
+                            if (!ProcessPacket(recvbuf + bytesProcessed, packetSize))
+                            {
+                                Disconnect();
+                                return;
+                            }
+
+                            bytesProcessed += packetSize;
+                        }
+                        else
+                        {
+                            // some bytes are missing
+                            packetBytesMissing = packetSize;
+                        }
+                    }
                 }
             }
         } while (bytesProcessed < incomingBytes);
-
-        bytesProcessed = 0;
     }
 
-    closesocket(Socket);
-    Socket = INVALID_SOCKET;
-    std::cout << logTag << "Disconnected" << std::endl;
-    IsConnected = false;
+    Disconnect();
 }
