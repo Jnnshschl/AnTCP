@@ -42,40 +42,40 @@ int __stdcall SigIntHandler(unsigned long signal)
 
 void ConnectedCallback(ClientHandler* handler)
 {
-    std::cout << ">> -> Client Connected: " << handler->GetIpAddress() << ":" << handler->GetPort() << std::endl;
+    std::cout << ">> -> Client Connected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetUniqueId() << ">" << std::endl;
 }
 
 void DisconnectedCallback(ClientHandler* handler)
 {
-    std::cout << ">> <- Client Disconnected: " << handler->GetIpAddress() << ":" << handler->GetPort() << std::endl;
+    std::cout << ">> <- Client Disconnected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetUniqueId() << ">" << std::endl;
 }
 
 void AddCallback(ClientHandler* handler, char type, const void* data, int size)
 {
-    int c = ((int*)data)[0] + ((int*)data)[1];
+    const int c = static_cast<const int*>(data)[0] + static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void SubtractCallback(ClientHandler* handler, char type, const void* data, int size)
 {
-    int c = ((int*)data)[0] - ((int*)data)[1];
+    const int c = static_cast<const int*>(data)[0] - static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void MultiplyCallback(ClientHandler* handler, char type, const void* data, int size)
 {
-    int c = ((int*)data)[0] * ((int*)data)[1];
+    const int c = static_cast<const int*>(data)[0] * static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void MinAvgMaxCallback(ClientHandler* handler, char type, const void* data, int size)
 {
-    int a = ((int*)data)[0];
-    int b = ((int*)data)[1];
+    const int a = static_cast<const int*>(data)[0];
+    const int b = static_cast<const int*>(data)[1];
 
     int c[3];
-    c[0] = std::min(a,b);
-    c[2] = std::max(a,b);
+    c[0] = std::min(a, b);
+    c[2] = std::max(a, b);
     c[1] = (c[2] + c[0]) / 2;
 
     handler->SendData(type, c, sizeof(c));

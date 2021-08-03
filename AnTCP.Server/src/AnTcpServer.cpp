@@ -94,10 +94,6 @@ AnTcpError AnTcpServer::Run() noexcept
 
 void ClientHandler::Listen() noexcept
 {
-    // the amount of bytes received from the recv function
-    int incomingBytes = 0;
-    // the amount of bytes that we processed
-    int bytesProcessed = 0;
     // buffer for the incoming bytes
     char recvbuf[ANTCP_BUFFER_LENGTH];
 
@@ -120,8 +116,8 @@ void ClientHandler::Listen() noexcept
 
     while (!ShouldExit)
     {
-        incomingBytes = recv(Socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
-        bytesProcessed = 0;
+        int incomingBytes = recv(Socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
+        int bytesProcessed = 0;
 
         // if we received 0 or -1 bytes, we're going to disconnect the client
         if (incomingBytes <= 0)
