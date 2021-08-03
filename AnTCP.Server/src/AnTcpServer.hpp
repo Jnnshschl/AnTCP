@@ -54,7 +54,7 @@ private:
     std::atomic<bool>& ShouldExit;
     std::unordered_map <AnTcpMessageType, std::function<void(ClientHandler*, AnTcpMessageType, const void*, int)>>* Callbacks;
 
-    int UniqueId;
+    unsigned int UniqueId;
     bool IsActive;
     std::thread* Thread;
 
@@ -84,7 +84,7 @@ public:
         Id(id),
         Socket(socket),
         SocketInfo(socketInfo),
-        UniqueId(static_cast<int>(std::hash<unsigned long>{}(socketInfo.sin_addr.S_un.S_addr) + std::hash<unsigned short>{}(socketInfo.sin_port))),
+        UniqueId(static_cast<unsigned int>(socketInfo.sin_addr.S_un.S_addr + socketInfo.sin_port)),
         ShouldExit(shouldExit),
         Callbacks(callbacks),
         Thread(new std::thread(&ClientHandler::Listen, this)),
@@ -113,7 +113,7 @@ public:
     /// <summary>
     /// Get a unique id based on ip and port of the handler.
     /// </summary>
-    constexpr int GetUniqueId() noexcept { return UniqueId; }
+    constexpr unsigned int GetUniqueId() noexcept { return UniqueId; }
 
     /// <summary>
     /// Used to delete old disconnected clients.
