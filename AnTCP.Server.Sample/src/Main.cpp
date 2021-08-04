@@ -42,12 +42,12 @@ int __stdcall SigIntHandler(unsigned long signal)
 
 void ConnectedCallback(ClientHandler* handler)
 {
-    std::cout << ">> -> Client Connected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetUniqueId() << ">" << std::endl;
+    std::cout << ">> -> Client Connected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetId() << ">" << std::endl;
 }
 
 void DisconnectedCallback(ClientHandler* handler)
 {
-    std::cout << ">> <- Client Disconnected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetUniqueId() << ">" << std::endl;
+    std::cout << ">> <- Client Disconnected: " << handler->GetIpAddress() << ":" << handler->GetPort() << " <" << handler->GetId() << ">" << std::endl;
 }
 
 void AddCallback(ClientHandler* handler, char type, const void* data, int size)

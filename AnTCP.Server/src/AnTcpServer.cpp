@@ -75,7 +75,7 @@ AnTcpError AnTcpServer::Run() noexcept
         // cleanup old disconnected clients
         ClientCleanup();
 
-        Clients.push_back(new ClientHandler(Clients.size(), clientSocket, clientInfo, ShouldExit, &Callbacks, &OnClientConnected, &OnClientDisconnected));
+        Clients.push_back(new ClientHandler(clientSocket, clientInfo, ShouldExit, &Callbacks, &OnClientConnected, &OnClientDisconnected));
     }
 
     for (ClientHandler* clientHandler : Clients)
