@@ -1,7 +1,7 @@
 #pragma once
 
 // toggle debug output here
-#if 1
+#if 0
 #define DEBUG_ONLY(x) x
 #define BENCHMARK(x) x
 #else
