@@ -94,20 +94,12 @@ AnTcpError AnTcpServer::Run() noexcept
 
 void ClientHandler::Listen() noexcept
 {
-    // buffer for the incoming bytes
-    char recvbuf[ANTCP_BUFFER_LENGTH];
-
-    // the index of our current header
-    int headerPosition = 0;
-    // buffer for the header
-    char header[sizeof(AnTcpSizeType)]{ 0 };
-
-    // the total packet size
+    // the total packet size and data ptr offset
     AnTcpSizeType packetSize = 0;
-    // the amount of bytes we are missing to complete the packet
-    int packetBytesMissing = 0;
+    AnTcpSizeType packetOffset = 0;
+
     // buffer for the packet
-    char packet[ANTCP_MAX_PACKET_SIZE]{ 0 };
+    char packet[sizeof(AnTcpSizeType) + ANTCP_MAX_PACKET_SIZE]{ 0 };
 
     if (OnClientConnected)
     {
@@ -116,92 +108,61 @@ void ClientHandler::Listen() noexcept
 
     while (!ShouldExit)
     {
-        int incomingBytes = recv(Socket, recvbuf, ANTCP_BUFFER_LENGTH, 0);
-        int bytesProcessed = 0;
+        auto packetBytesMissing = packetSize - packetOffset;
+        // how many bytes to receive at most, if packet is beeing built it's the remaining packets size 
+        // otherwise the size of the AnTcpSizeType which tells us how big the packet will be
+        auto maxReceiveSize = packetBytesMissing > 0 ? packetBytesMissing : sizeof(AnTcpSizeType);
+
+        auto receivedPacketBytes = recv(Socket, packet + packetOffset, maxReceiveSize, 0);
+        packetOffset += receivedPacketBytes;
 
         // if we received 0 or -1 bytes, we're going to disconnect the client
-        if (incomingBytes <= 0)
+        if (receivedPacketBytes <= 0)
         {
             break;
         }
 
-        DEBUG_ONLY(std::cout << "[" << Id << "] " << "Received " << std::to_string(incomingBytes) + " bytes" << std::endl);
+        DEBUG_ONLY(std::cout << "[" << Id << "] " << "Received " << std::to_string(receivedPacketBytes) + " bytes" << std::endl);
 
-        do
+        if (packetSize == 0)
         {
-            if (packetBytesMissing > 0)
+            // wait until the transmission of the AnTcpSizeType is completed to determine packet size
+            if (packetOffset >= sizeof(AnTcpSizeType))
             {
-                // gather bytes complete the packet
-                const int bytesToCopy = std::min(incomingBytes - bytesProcessed, packetBytesMissing);
+                packetSize = *reinterpret_cast<AnTcpSizeType*>(packet);
 
-                DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet Chunk: " << std::to_string(bytesToCopy) << " bytes ("
-                    << std::to_string(packetSize - (packetBytesMissing - bytesToCopy))
-                    << "/" << std::to_string(packetSize) << ")" << std::endl);
-
-                // copy data from incoming buffer to packet buffer
-                memcpy(packet + (packetSize - packetBytesMissing), recvbuf + bytesProcessed, bytesToCopy);
-                bytesProcessed += bytesToCopy;
-
-                // check whether we still miss some bytes
-                packetBytesMissing -= bytesToCopy;
-
-                if (packetBytesMissing == 0 && !ProcessPacket(packet, packetSize))
+                if (packetSize > ANTCP_MAX_PACKET_SIZE)
                 {
-                    Disconnect();
-                    return;
+                    // packet is too big, this may be a wrong/malicious payload
+                    DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet too big (" << std::to_string(packetSize)
+                        << "/" << ANTCP_MAX_PACKET_SIZE << "), disconnecting client..." << std::endl);
+                    break;
                 }
+
+                DEBUG_ONLY(std::cout << "[" << Id << "] " << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl);
+            }
+        }
+        else
+        {
+            // we know the packet's size, wait for it to be complete
+            if (packetBytesMissing == 0)
+            {
+                if (!ProcessPacket(packet + sizeof(AnTcpSizeType), packetSize))
+                {
+                    // processing the packet failed, disconnect client
+                    break;
+                }
+
+                // reset packet buffer
+                packetSize = 0;
+                packetOffset = 0;
             }
             else
             {
-                if (headerPosition < static_cast<int>(sizeof(AnTcpSizeType)))
-                {
-                    // we still need to finish building the header
-                    const int bytesToCopy = std::min(incomingBytes - bytesProcessed, static_cast<int>(sizeof(AnTcpSizeType)) - headerPosition);
-
-                    // copy data from buffer to header buffer
-                    memcpy(header + headerPosition, recvbuf + bytesProcessed, bytesToCopy);
-                    bytesProcessed += bytesToCopy;
-                    headerPosition += bytesToCopy;
-                }
-                else
-                {
-                    // header is completed, begin to build packet
-                    headerPosition = 0;
-                    packetSize = *reinterpret_cast<AnTcpSizeType*>(header);
-
-                    if (packetSize > ANTCP_MAX_PACKET_SIZE)
-                    {
-                        // packet is too big, this may be a wrong/malicious payload
-                        DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet too big (" << std::to_string(packetSize)
-                            << "/" << ANTCP_MAX_PACKET_SIZE << "), disconnecting client..." << std::endl);
-
-                        Disconnect();
-                        return;
-                    }
-                    else
-                    {
-                        DEBUG_ONLY(std::cout << "[" << Id << "] " << "New Packet: " << std::to_string(packetSize) + " bytes" << std::endl);
-
-                        if (incomingBytes >= packetSize)
-                        {
-                            // we already received the full packet, so process it directly
-                            if (!ProcessPacket(recvbuf + bytesProcessed, packetSize))
-                            {
-                                Disconnect();
-                                return;
-                            }
-
-                            bytesProcessed += packetSize;
-                        }
-                        else
-                        {
-                            // some bytes are missing
-                            packetBytesMissing = packetSize;
-                        }
-                    }
-                }
+                DEBUG_ONLY(std::cout << "[" << Id << "] " << "Packet Chunk: " << std::to_string(receivedPacketBytes) << " bytes ("
+                    << std::to_string(packetOffset) << "/" << std::to_string(packetSize) << ")" << std::endl);
             }
-        } while (bytesProcessed < incomingBytes);
+        }
     }
 
     Disconnect();

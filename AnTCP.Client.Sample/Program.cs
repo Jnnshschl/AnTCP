@@ -1,5 +1,6 @@
 ﻿using AnTCP.Client.Objects;
 using System;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace AnTCP.Client.Sample
@@ -42,9 +43,12 @@ namespace AnTCP.Client.Sample
                     (int, int) data = (new Random().Next(1, 11), new Random().Next(1, 11));
 
                     Console.WriteLine($"\n>> Sending: {data.Item1}, {data.Item2}");
-                    AnTcpResponse response = client.Send((byte)new Random().Next(0, 4), data);
 
-                    Console.WriteLine($">> Response: {response.Length} bytes | Type: {(MessageType)response.Type}");
+                    Stopwatch sw = Stopwatch.StartNew();
+                    AnTcpResponse response = client.Send((byte)new Random().Next(0, 4), data);
+                    sw.Stop();
+
+                    Console.WriteLine($">> Response ({sw.Elapsed}): {response.Length} bytes | Type: {(MessageType)response.Type}");
 
                     switch ((MessageType)response.Type)
                     {

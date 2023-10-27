@@ -25,8 +25,7 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
-constexpr auto ANTCP_SERVER_VERSION = "1.1.0.0";
-constexpr auto ANTCP_BUFFER_LENGTH = 512;
+constexpr auto ANTCP_SERVER_VERSION = "1.2.0.0";
 constexpr auto ANTCP_MAX_PACKET_SIZE = 256;
 
 // type used in the payload to specify the size of a packet
@@ -54,7 +53,6 @@ private:
     std::atomic<bool>& ShouldExit;
     std::unordered_map <AnTcpMessageType, std::function<void(ClientHandler*, AnTcpMessageType, const void*, int)>>* Callbacks;
 
-    unsigned int UniqueId;
     bool IsActive;
     std::thread* Thread;
 
@@ -79,12 +77,12 @@ public:
         std::function<void(ClientHandler*)>* onClientConnected = nullptr,
         std::function<void(ClientHandler*)>* onClientDisconnected = nullptr
     )
-        : IsActive(true),
-        Id(static_cast<unsigned int>(socketInfo.sin_addr.S_un.S_addr + socketInfo.sin_port)),
+        : Id(static_cast<unsigned int>(socketInfo.sin_addr.S_un.S_addr + socketInfo.sin_port)),
         Socket(socket),
         SocketInfo(socketInfo),
         ShouldExit(shouldExit),
         Callbacks(callbacks),
+        IsActive(true),
         Thread(new std::thread(&ClientHandler::Listen, this)),
         OnClientConnected(onClientConnected),
         OnClientDisconnected(onClientDisconnected)
@@ -212,9 +210,9 @@ private:
     /// <param name="type">Message type.</param>
     /// <param name="data">Data received.</param>
     /// <returns>True if callback was fired, false if not.</returns>
-    inline bool ProcessPacket(const char* data, int size) noexcept
+    inline bool ProcessPacket(const char* data, AnTcpMessageType size) noexcept
     {
-        const AnTcpMessageType msgType = *reinterpret_cast<const AnTcpMessageType*>(data);
+        auto msgType = *reinterpret_cast<const AnTcpMessageType*>(data);
 
         if ((*Callbacks).contains(msgType))
         {
@@ -222,17 +220,17 @@ private:
             BENCHMARK(const auto packetStart = std::chrono::high_resolution_clock::now());
 
             // fire the callback with the raw data
-            (*Callbacks)[msgType](this, msgType, data + static_cast<int>(sizeof(AnTcpMessageType)), size - static_cast<int>(sizeof(AnTcpMessageType)));
+            (*Callbacks)[msgType](this, msgType, data + sizeof(AnTcpMessageType), size - sizeof(AnTcpMessageType));
 
             BENCHMARK(std::cout << "[" << Id << "] " << "Processing packet of type \""
-                << std::to_string(*reinterpret_cast<const AnTcpMessageType*>(data)) << "\" took: "
+                << std::to_string(msgType) << "\" took: "
                 << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - packetStart) << std::endl);
 
             return true;
         }
 
-        DEBUG_ONLY(std::cout << "[" << Id << "] " << "\"" << std::to_string(*reinterpret_cast<const AnTcpMessageType*>(data))
-            << "\" is an unknown message type, disconnecting client..." << std::endl);
+        DEBUG_ONLY(std::cout << "[" << Id << "] " << "\"" << std::to_string(msgType)
+            << "\" is an unknown message type..." << std::endl);
 
         return false;
     }
