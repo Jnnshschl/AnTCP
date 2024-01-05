@@ -43,8 +43,7 @@ AnTcpError AnTcpServer::Run() noexcept
     if (result == SOCKET_ERROR)
     {
         DEBUG_ONLY(std::cout << ">> bind() failed: " << WSAGetLastError() << std::endl);
-        closesocket(ListenSocket);
-        ListenSocket = INVALID_SOCKET;
+        SocketCleanup();
         WSACleanup();
         return AnTcpError::SocketBindingFailed;
     }
@@ -52,19 +51,19 @@ AnTcpError AnTcpServer::Run() noexcept
     if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR)
     {
         DEBUG_ONLY(std::cout << ">> listen() failed: " << WSAGetLastError() << std::endl);
-        closesocket(ListenSocket);
-        ListenSocket = INVALID_SOCKET;
+        SocketCleanup();
         WSACleanup();
         return AnTcpError::SocketListeningFailed;
     }
+
 
     while (!ShouldExit)
     {
         // accept client and get socket info from it, the socket info contains the ip address
         // and port used to connect o the server
         SOCKADDR_IN clientInfo{ 0 };
-        int size = sizeof(SOCKADDR_IN);
-        SOCKET clientSocket = accept(ListenSocket, reinterpret_cast<sockaddr*>(&clientInfo), &size);
+        int sockAddrSize = static_cast<int>(sizeof(SOCKADDR_IN));
+        SOCKET clientSocket = accept(ListenSocket, reinterpret_cast<sockaddr*>(&clientInfo), &sockAddrSize);
 
         if (clientSocket == INVALID_SOCKET)
         {
@@ -72,9 +71,8 @@ AnTcpError AnTcpServer::Run() noexcept
             continue;
         }
 
-        // cleanup old disconnected clients
+        // cleanup old disconnected clients and add the new
         ClientCleanup();
-
         Clients.push_back(new ClientHandler(clientSocket, clientInfo, ShouldExit, &Callbacks, &OnClientConnected, &OnClientDisconnected));
     }
 
@@ -86,25 +84,24 @@ AnTcpError AnTcpServer::Run() noexcept
         }
     }
 
-    Clients.clear();
-
+    SocketCleanup();
     WSACleanup();
     return AnTcpError::Success;
 }
 
 void ClientHandler::Listen() noexcept
 {
+    if (OnClientConnected)
+    {
+        (*OnClientConnected)(this);
+    }
+
     // the total packet size and data ptr offset
     AnTcpSizeType packetSize = 0;
     AnTcpSizeType packetOffset = 0;
 
     // buffer for the packet
     char packet[sizeof(AnTcpSizeType) + ANTCP_MAX_PACKET_SIZE]{ 0 };
-
-    if (OnClientConnected)
-    {
-        (*OnClientConnected)(this);
-    }
 
     while (!ShouldExit)
     {

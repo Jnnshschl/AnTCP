@@ -25,7 +25,7 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
-constexpr auto ANTCP_SERVER_VERSION = "1.2.0.0";
+constexpr auto ANTCP_SERVER_VERSION = "1.2.1.0";
 constexpr auto ANTCP_MAX_PACKET_SIZE = 256;
 
 // type used in the payload to specify the size of a packet
@@ -104,7 +104,7 @@ public:
     /// <summary>
     /// Get the AnTCP handler id.
     /// </summary>
-    constexpr int GetId() noexcept { return Id; }
+    constexpr auto GetId() const noexcept { return Id; }
 
     /// <summary>
     /// Used to delete old disconnected clients.
@@ -151,10 +151,10 @@ public:
     /// <returns>True if data was sent, false if not.</returns>
     inline bool SendData(AnTcpMessageType type, const void* data, size_t size) const noexcept
     {
-        const int packetSize = size + static_cast<int>(sizeof(AnTcpMessageType));
-        return send(Socket, reinterpret_cast<const char*>(&packetSize), sizeof(decltype(packetSize)), 0) != SOCKET_ERROR
-            && send(Socket, &type, sizeof(AnTcpMessageType), 0) != SOCKET_ERROR
-            && send(Socket, static_cast<const char*>(data), size, 0) != SOCKET_ERROR;
+        const size_t packetSize = size + sizeof(AnTcpMessageType);
+        return send(Socket, reinterpret_cast<const char*>(&packetSize), static_cast<int>(sizeof(decltype(packetSize))), 0) != SOCKET_ERROR
+            && send(Socket, &type, static_cast<int>(sizeof(AnTcpMessageType)), 0) != SOCKET_ERROR
+            && send(Socket, static_cast<const char*>(data), static_cast<int>(size), 0) != SOCKET_ERROR;
     }
 
     /// <summary>
@@ -176,7 +176,7 @@ public:
     /// Get the clients ip address.
     /// </summary>
     /// <returns>IP address as string.</returns>
-    inline std::string GetIpAddress() noexcept
+    inline std::string GetIpAddress() const noexcept
     {
         char ipAddressBuffer[128]{ 0 };
         inet_ntop(AF_INET, &SocketInfo.sin_addr, ipAddressBuffer, 128);
@@ -186,12 +186,12 @@ public:
     /// <summary>
     /// Get the client connection port.
     /// </summary>
-    constexpr unsigned short GetPort() noexcept
+    constexpr unsigned short GetPort() const noexcept
     {
         return SocketInfo.sin_port;
     }
 
-    constexpr unsigned short GetAddressFamily() noexcept
+    constexpr unsigned short GetAddressFamily() const noexcept
     {
         return SocketInfo.sin_family;
     }
@@ -344,6 +344,8 @@ public:
         ShouldExit = true;
         closesocket(ListenSocket);
         ListenSocket = INVALID_SOCKET;
+        Clients.clear();
+        WSACleanup();
     }
 
     /// <summary>
@@ -353,6 +355,15 @@ public:
     AnTcpError Run() noexcept;
 
 private:
+    constexpr void SocketCleanup() noexcept
+    {
+        if (ListenSocket != INVALID_SOCKET)
+        {
+            closesocket(ListenSocket);
+            ListenSocket = INVALID_SOCKET;
+        }
+    }
+
     /// <summary>
     /// Delete old clients that are not running.
     /// </summary>
@@ -360,20 +371,17 @@ private:
     {
         for (size_t i = 0; i < Clients.size(); ++i)
         {
-            if (Clients[i]->IsConnected())
+            if (Clients[i] && Clients[i]->IsConnected())
             {
-                if (Clients[i])
+                if (OnClientDisconnected)
                 {
-                    if (OnClientDisconnected)
-                    {
-                        OnClientDisconnected(Clients[i]);
-                    }
-
-                    delete Clients[i];
+                    OnClientDisconnected(Clients[i]);
                 }
 
-                Clients.erase(Clients.begin() + i);
+                delete Clients[i];
             }
+
+            Clients.erase(Clients.begin() + i);
         }
     }
 };
