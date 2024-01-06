@@ -52,28 +52,32 @@ void DisconnectedCallback(ClientHandler* handler)
 
 void AddCallback(ClientHandler* handler, char type, const void* data, int size)
 {
+    std::cout << ">> ADD: " << static_cast<const int*>(data)[0] << " + " << static_cast<const int*>(data)[1] << std::endl;
     const int c = static_cast<const int*>(data)[0] + static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void SubtractCallback(ClientHandler* handler, char type, const void* data, int size)
 {
+    std::cout << ">> SUB: " << static_cast<const int*>(data)[0] << " - " << static_cast<const int*>(data)[1] << std::endl;
     const int c = static_cast<const int*>(data)[0] - static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void MultiplyCallback(ClientHandler* handler, char type, const void* data, int size)
 {
+    std::cout << ">> MUL: " << static_cast<const int*>(data)[0] << " * " << static_cast<const int*>(data)[1] << std::endl;
     const int c = static_cast<const int*>(data)[0] * static_cast<const int*>(data)[1];
     handler->SendDataVar(type, c);
 }
 
 void MinAvgMaxCallback(ClientHandler* handler, char type, const void* data, int size)
 {
-    const int a = static_cast<const int*>(data)[0];
-    const int b = static_cast<const int*>(data)[1];
+    std::cout << ">> MAM: " << static_cast<const int*>(data)[0] << " | " << static_cast<const int*>(data)[1] << std::endl;
+    const float a = static_cast<const float>(static_cast<const int*>(data)[0]);
+    const float b = static_cast<const float>(static_cast<const int*>(data)[1]);
 
-    int c[3];
+    float c[3];
     c[0] = std::min(a, b);
     c[2] = std::max(a, b);
     c[1] = (c[2] + c[0]) / 2;

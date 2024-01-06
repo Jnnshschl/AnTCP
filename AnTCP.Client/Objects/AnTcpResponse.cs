@@ -3,18 +3,12 @@ using System.Buffers;
 
 namespace AnTCP.Client.Objects
 {
-    public unsafe struct AnTcpResponse
+    public readonly unsafe ref struct AnTcpResponse(Memory<byte> memory)
     {
-        public AnTcpResponse(byte type, byte[] data)
-        {
-            Type = type;
-            Data = data;
-        }
-
         /// <summary>
         /// Raw data received by the TCP client.
         /// </summary>
-        public byte[] Data { get; }
+        public Span<byte> Data { get; } = memory.Span[1..];
 
         /// <summary>
         /// Lenght of the data array.
@@ -24,7 +18,7 @@ namespace AnTCP.Client.Objects
         /// <summary>
         /// Type of the response.
         /// </summary>
-        public byte Type { get; }
+        public byte Type { get; } = memory.Span[0];
 
         /// <summary>
         /// Retrieve the data as any unmanaged type or struct.
@@ -53,8 +47,8 @@ namespace AnTCP.Client.Objects
         /// <returns>Pointer to the data</returns>
         public T* Pointer<T>() where T : unmanaged
         {
-            using MemoryHandle h = Data.AsMemory().Pin();
-            return (T*)h.Pointer;
+            fixed (byte* ptr = Data)
+                return (T*)ptr;
         }
     }
 }

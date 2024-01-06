@@ -6,19 +6,13 @@ using System.Runtime.CompilerServices;
 
 namespace AnTCP.Client
 {
-    public unsafe class AnTcpClient
+    public unsafe class AnTcpClient(string ip, int port)
     {
-        public AnTcpClient(string ip, int port)
-        {
-            Ip = ip;
-            Port = port;
-        }
-
-        public string Ip { get; private set; }
+        public string Ip { get; private set; } = ip;
 
         public bool IsConnected => Client != null && Client.Connected;
 
-        public int Port { get; private set; }
+        public int Port { get; private set; } = port;
 
         private TcpClient Client { get; set; }
 
@@ -55,7 +49,12 @@ namespace AnTCP.Client
         public AnTcpResponse Send<T>(byte type, T data) where T : unmanaged
         {
             int size = sizeof(T);
-            return SendData(BitConverter.GetBytes(size + 1).AsSpan(), new Span<byte>(&type, 1), new Span<byte>(&data, size));
+            return SendData
+            (
+                BitConverter.GetBytes(size + 1).AsSpan(),
+                new ReadOnlySpan<byte>(&type, 1),
+                new ReadOnlySpan<byte>(&data, size)
+            );
         }
 
         /// <summary>
@@ -64,20 +63,23 @@ namespace AnTCP.Client
         /// <param name="type">Mesagte type</param>
         /// <param name="data">Data to send</param>
         /// <returns>Server response</returns>
-        public AnTcpResponse SendBytes(byte type, byte[] data)
+        public AnTcpResponse SendBytes(byte type, ReadOnlySpan<byte> data)
         {
-            return SendData(BitConverter.GetBytes(data.Length + 1).AsSpan(), new Span<byte>(&type, 1), data.AsSpan());
+            return SendData
+            (
+                BitConverter.GetBytes(data.Length + 1).AsSpan(), 
+                new Span<byte>(&type, 1), 
+                data
+            );
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private AnTcpResponse SendData(Span<byte> size, Span<byte> type, Span<byte> data)
+        private AnTcpResponse SendData(ReadOnlySpan<byte> size, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
         {
             Stream.Write(size);
             Stream.Write(type);
             Stream.Write(data);
-
-            byte[] response = Reader.ReadBytes(Reader.ReadInt32());
-            return new AnTcpResponse(response[0], response[1..response.Length]);
+            return new AnTcpResponse(Reader.ReadBytes(Reader.ReadInt32()));
         }
     }
 }

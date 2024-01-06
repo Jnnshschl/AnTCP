@@ -59,7 +59,7 @@ namespace AnTCP.Client.Sample
                             break;
 
                         case MessageType.MinAvgMax:
-                            int[] array = response.AsArray<int>();
+                            float[] array = response.AsArray<float>();
                             Console.WriteLine($">> Data Array[{array.Length}]: {JsonSerializer.Serialize(array)}");
                             break;
 
